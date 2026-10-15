@@ -179,6 +179,52 @@ func TestParseNode_PrewarmRejectsUnsupportedTransport(t *testing.T) {
 	}
 }
 
+func TestParseNode_PredictiveConnect(t *testing.T) {
+	n, err := ParseNode("test-hop", &config.NodeConfig{
+		Name: "predictive",
+		Addr: "proxy.example:443",
+		Connector: &config.ConnectorConfig{
+			Type: "http",
+		},
+		Dialer: &config.DialerConfig{
+			Type: "tls",
+		},
+		Metadata: map[string]any{
+			"predictive":              1,
+			"predictive.maxEndpoints": 4,
+			"predictive.minHits":      3,
+		},
+	}, testLogger())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tr, ok := n.Options().Transport.(*xchain.PredictiveTransport)
+	if !ok {
+		t.Fatalf("transport type = %T, want *chain.PredictiveTransport", n.Options().Transport)
+	}
+	defer tr.Close()
+	if stats := tr.PredictiveStats(); stats.Available != 0 || stats.Creating != 0 || stats.TrackedEndpoints != 0 {
+		t.Fatalf("predictive pool should remain dormant before traffic: %+v", stats)
+	}
+}
+
+func TestParseNode_PredictiveRejectsUnsupportedTransport(t *testing.T) {
+	_, err := ParseNode("test-hop", &config.NodeConfig{
+		Name: "plain-http",
+		Addr: "proxy.example:80",
+		Connector: &config.ConnectorConfig{
+			Type: "http",
+		},
+		Dialer: &config.DialerConfig{
+			Type: "tcp",
+		},
+		Metadata: map[string]any{"predictive": 1},
+	}, testLogger())
+	if err == nil {
+		t.Fatal("expected predictive CONNECT to reject a non-TLS dialer")
+	}
+}
+
 func TestParseNode_WithBypass(t *testing.T) {
 	n, err := ParseNode("test-hop", &config.NodeConfig{
 		Name:     "bypass-node",

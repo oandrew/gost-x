@@ -46,6 +46,18 @@ func NewMetrics(reg *prometheus.Registry) metrics.Metrics {
 					Help: "Current number of idle prewarmed node connections",
 				},
 				[]string{"host", "hop", "node"}),
+			MetricPredictiveAvailableGauge: prometheus.NewGaugeVec(
+				prometheus.GaugeOpts{
+					Name: string(MetricPredictiveAvailableGauge),
+					Help: "Current number of idle predictive CONNECT tunnels",
+				},
+				[]string{"host", "hop", "node"}),
+			MetricPredictiveHotEndpointsGauge: prometheus.NewGaugeVec(
+				prometheus.GaugeOpts{
+					Name: string(MetricPredictiveHotEndpointsGauge),
+					Help: "Current number of hot predictive CONNECT endpoints",
+				},
+				[]string{"host", "hop", "node"}),
 		},
 		counters: map[metrics.MetricName]*prometheus.CounterVec{
 			MetricServiceRequestsCounter: prometheus.NewCounterVec(
@@ -108,6 +120,30 @@ func NewMetrics(reg *prometheus.Registry) metrics.Metrics {
 					Help: "Total failed prewarmed node connection establishments",
 				},
 				[]string{"host", "hop", "node"}),
+			MetricPredictiveHitsCounter: prometheus.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: string(MetricPredictiveHitsCounter),
+					Help: "Total predictive CONNECT tunnel pool hits",
+				},
+				[]string{"host", "hop", "node"}),
+			MetricPredictiveMissesCounter: prometheus.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: string(MetricPredictiveMissesCounter),
+					Help: "Total predictive CONNECT tunnel pool misses",
+				},
+				[]string{"host", "hop", "node"}),
+			MetricPredictiveStaleCounter: prometheus.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: string(MetricPredictiveStaleCounter),
+					Help: "Total stale predictive CONNECT tunnels",
+				},
+				[]string{"host", "hop", "node"}),
+			MetricPredictiveFailuresCounter: prometheus.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: string(MetricPredictiveFailuresCounter),
+					Help: "Total failed predictive CONNECT tunnel establishments",
+				},
+				[]string{"host", "hop", "node"}),
 		},
 		histograms: map[metrics.MetricName]*prometheus.HistogramVec{
 			MetricServiceRequestsDurationObserver: prometheus.NewHistogramVec(
@@ -132,6 +168,15 @@ func NewMetrics(reg *prometheus.Registry) metrics.Metrics {
 				prometheus.HistogramOpts{
 					Name: string(MetricPrewarmEstablishDurationObserver),
 					Help: "Distribution of background node connection establishment latencies",
+					Buckets: []float64{
+						.01, .05, .1, .25, .5, 1, 1.5, 2, 5, 10, 15, 30, 60,
+					},
+				},
+				[]string{"host", "hop", "node"}),
+			MetricPredictiveEstablishDurationObserver: prometheus.NewHistogramVec(
+				prometheus.HistogramOpts{
+					Name: string(MetricPredictiveEstablishDurationObserver),
+					Help: "Distribution of background TCP, TLS, and CONNECT establishment latencies",
 					Buckets: []float64{
 						.01, .05, .1, .25, .5, 1, 1.5, 2, 5, 10, 15, 30, 60,
 					},

@@ -36,6 +36,20 @@ const (
 	MetricPrewarmFailuresCounter metrics.MetricName = "gost_chain_node_prewarm_failures_total"
 	// Background TCP/TLS establishment duration. Labels: host, hop, node.
 	MetricPrewarmEstablishDurationObserver metrics.MetricName = "gost_chain_node_prewarm_establish_duration_seconds"
+	// Number of idle, fully CONNECTed predictive tunnels. Labels: host, hop, node.
+	MetricPredictiveAvailableGauge metrics.MetricName = "gost_chain_node_predictive_available"
+	// Number of endpoints currently classified as hot. Labels: host, hop, node.
+	MetricPredictiveHotEndpointsGauge metrics.MetricName = "gost_chain_node_predictive_hot_endpoints"
+	// Total predictive tunnel pool hits. Labels: host, hop, node.
+	MetricPredictiveHitsCounter metrics.MetricName = "gost_chain_node_predictive_hits_total"
+	// Total predictive tunnel pool misses. Labels: host, hop, node.
+	MetricPredictiveMissesCounter metrics.MetricName = "gost_chain_node_predictive_misses_total"
+	// Total expired or remotely closed predictive tunnels. Labels: host, hop, node.
+	MetricPredictiveStaleCounter metrics.MetricName = "gost_chain_node_predictive_stale_total"
+	// Total failed predictive tunnel establishments. Labels: host, hop, node.
+	MetricPredictiveFailuresCounter metrics.MetricName = "gost_chain_node_predictive_failures_total"
+	// Background TCP/TLS/CONNECT duration. Labels: host, hop, node.
+	MetricPredictiveEstablishDurationObserver metrics.MetricName = "gost_chain_node_predictive_establish_duration_seconds"
 	// Total service handler errors. Labels: host, service, client.
 	MetricServiceHandlerErrorsCounter metrics.MetricName = "gost_service_handler_errors_total"
 	// Total chain connect errors. Labels: host, chain, node.

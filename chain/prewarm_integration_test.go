@@ -33,16 +33,21 @@ type connectRequest struct {
 }
 
 type delayedTLSProxy struct {
-	listener    net.Listener
-	delay       time.Duration
-	handshakes  atomic.Int64
-	requests    chan connectRequest
-	mu          sync.Mutex
-	connections map[net.Conn]struct{}
-	wg          sync.WaitGroup
+	listener     net.Listener
+	delay        time.Duration
+	connectDelay time.Duration
+	handshakes   atomic.Int64
+	requests     chan connectRequest
+	mu           sync.Mutex
+	connections  map[net.Conn]struct{}
+	wg           sync.WaitGroup
 }
 
 func newDelayedTLSProxy(t *testing.T, delay time.Duration) *delayedTLSProxy {
+	return newDelayedTLSProxyWithConnectDelay(t, delay, 0)
+}
+
+func newDelayedTLSProxyWithConnectDelay(t *testing.T, handshakeDelay, connectDelay time.Duration) *delayedTLSProxy {
 	t.Helper()
 	cert := newTestCertificate(t)
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
@@ -54,9 +59,10 @@ func newDelayedTLSProxy(t *testing.T, delay time.Duration) *delayedTLSProxy {
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
 		}),
-		delay:       delay,
-		requests:    make(chan connectRequest, 8),
-		connections: make(map[net.Conn]struct{}),
+		delay:        handshakeDelay,
+		connectDelay: connectDelay,
+		requests:     make(chan connectRequest, 16),
+		connections:  make(map[net.Conn]struct{}),
 	}
 	p.wg.Add(1)
 	go p.serve()
@@ -123,6 +129,7 @@ func (p *delayedTLSProxy) serveConn(conn net.Conn) {
 		host: req.Host,
 		auth: req.Header.Get("Proxy-Authorization"),
 	}
+	time.Sleep(p.connectDelay)
 	if _, err := io.WriteString(tlsConn, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		return
 	}
@@ -218,5 +225,96 @@ func TestHTTPSPrewarmIntegration(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("proxy did not receive CONNECT")
+	}
+}
+
+func TestHTTPSPredictiveConnectIntegration(t *testing.T) {
+	const (
+		handshakeDelay = 40 * time.Millisecond
+		connectDelay   = 75 * time.Millisecond
+	)
+	proxy := newDelayedTLSProxyWithConnectDelay(t, handshakeDelay, connectDelay)
+	defer proxy.close()
+
+	d := tlsdialer.NewDialer(
+		dialer.TLSConfigOption(&tls.Config{
+			InsecureSkipVerify: true, // test-only certificate
+			MinVersion:         tls.VersionTLS12,
+		}),
+		dialer.LoggerOption(xlogger.Nop()),
+	)
+	if err := d.Init(nil); err != nil {
+		t.Fatal(err)
+	}
+	c := httpconnector.NewConnector(
+		connector.AuthOption(url.UserPassword("predict-user", "predict-pass")),
+		connector.LoggerOption(xlogger.Nop()),
+	)
+	if err := c.Init(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	prewarm := NewPrewarmTransport(NewTransport(d, c), PrewarmConfig{
+		Size:           2,
+		MaxConcurrent:  2,
+		Lifetime:       time.Minute,
+		IdleTimeout:    time.Minute,
+		RefillInterval: 5 * time.Millisecond,
+		DialTimeout:    time.Second,
+		CheckTimeout:   2 * time.Millisecond,
+	}, xlogger.Nop(), "integration-hop", "integration-node")
+	tr := NewPredictiveTransport(prewarm, PredictiveConfig{
+		Size:           1,
+		MaxEndpoints:   2,
+		MinHits:        2,
+		Window:         time.Minute,
+		MaxConcurrent:  1,
+		Lifetime:       time.Minute,
+		IdleTimeout:    time.Minute,
+		RefillInterval: 5 * time.Millisecond,
+		ConnectTimeout: time.Second,
+		CheckTimeout:   -1,
+	}, xlogger.Nop(), "integration-hop", "integration-node")
+	defer tr.Close()
+	tr.StartPrewarm(proxy.listener.Addr().String())
+	waitForPrewarmAvailable(t, prewarm, 2)
+
+	const target = "frequent.example:443"
+	for range 2 {
+		conn, err := tr.DialConnect(context.Background(), proxy.listener.Addr().String(), "tcp", target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Close()
+	}
+	waitForPredictiveAvailable(t, tr, 1)
+
+	started := time.Now()
+	conn, err := tr.DialConnect(context.Background(), proxy.listener.Addr().String(), "tcp", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(started)
+	_ = conn.Close()
+	if elapsed >= connectDelay/2 {
+		t.Fatalf("predictive CONNECT hit took %v; the %v CONNECT delay remained on the critical path", elapsed, connectDelay)
+	}
+
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("predict-user:predict-pass"))
+	for i := range 3 {
+		select {
+		case req := <-proxy.requests:
+			if req.host != target {
+				t.Fatalf("CONNECT %d host = %q, want %q", i+1, req.host, target)
+			}
+			if req.auth != wantAuth {
+				t.Fatalf("CONNECT %d Proxy-Authorization = %q, want %q", i+1, req.auth, wantAuth)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("proxy did not receive CONNECT %d", i+1)
+		}
+	}
+	if stats := tr.PredictiveStats(); stats.Hits != 1 {
+		t.Fatalf("predictive hits = %d, want 1", stats.Hits)
 	}
 }

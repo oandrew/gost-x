@@ -117,4 +117,18 @@ const (
 	MDKeyPrewarmRefillInterval = "prewarm.refillInterval"
 	MDKeyPrewarmDialTimeout    = "prewarm.dialTimeout"
 	MDKeyPrewarmCheckTimeout   = "prewarm.checkTimeout"
+
+	// MDKeyPredictiveSize enables per-endpoint pools of fully CONNECTed
+	// tunnels for frequently requested targets. Zero disables prediction.
+	MDKeyPredictiveSize = "predictive.size"
+
+	MDKeyPredictiveMaxEndpoints   = "predictive.maxEndpoints"
+	MDKeyPredictiveMinHits        = "predictive.minHits"
+	MDKeyPredictiveWindow         = "predictive.window"
+	MDKeyPredictiveMaxConcurrent  = "predictive.maxConcurrent"
+	MDKeyPredictiveLifetime       = "predictive.lifetime"
+	MDKeyPredictiveIdleTimeout    = "predictive.idleTimeout"
+	MDKeyPredictiveRefillInterval = "predictive.refillInterval"
+	MDKeyPredictiveConnectTimeout = "predictive.connectTimeout"
+	MDKeyPredictiveCheckTimeout   = "predictive.checkTimeout"
 )

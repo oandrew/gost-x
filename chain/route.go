@@ -121,6 +121,13 @@ type chainRoute struct {
 	options RouteOptions
 }
 
+// dialConnectTransport is an optional fast path for a one-node route. It lets
+// a transport that owns a fully CONNECTed tunnel pool see the final target
+// before any upstream connection is acquired.
+type dialConnectTransport interface {
+	DialConnect(ctx context.Context, proxyAddr, network, address string) (net.Conn, error)
+}
+
 // NewRoute creates a new route with the given options.
 func NewRoute(opts ...RouteOption) *chainRoute {
 	var options RouteOptions
@@ -150,6 +157,12 @@ func (r *chainRoute) Dial(ctx context.Context, network, address string, opts ...
 			opt(&options)
 		}
 	}
+	if len(r.Nodes()) == 1 {
+		node := r.getNode(0)
+		if tr, ok := node.Options().Transport.(dialConnectTransport); ok {
+			return r.dialConnect(ctx, node, tr, network, address, options.Logger)
+		}
+	}
 	conn, err := r.connect(ctx, options.Logger)
 	if err != nil {
 		return nil, err
@@ -163,6 +176,68 @@ func (r *chainRoute) Dial(ctx context.Context, network, address string, opts ...
 		return nil, err
 	}
 	return cc, nil
+}
+
+func (r *chainRoute) dialConnect(ctx context.Context, node *chain.Node, tr dialConnectTransport, network, address string, log logger.Logger) (conn net.Conn, err error) {
+	defer func() {
+		if r.options.Chain == nil {
+			return
+		}
+		var marker selector.Marker
+		if m, ok := r.options.Chain.(selector.Markable); ok && m != nil {
+			marker = m.Marker()
+		}
+		var name string
+		if cn, _ := r.options.Chain.(chainNamer); cn != nil {
+			name = cn.Name()
+		}
+		if err != nil {
+			if marker != nil {
+				marker.Mark()
+			}
+			xmetrics.GetCounter(xmetrics.MetricChainErrorsCounter,
+				metrics.Labels{"chain": name, "node": node.Name}).Inc()
+			return
+		}
+		if marker != nil {
+			marker.Reset()
+		}
+	}()
+
+	proxyAddr, err := xnet.Resolve(ctx, "ip", node.Addr,
+		node.Options().Resolver, node.Options().HostMapper, log)
+	marker := node.Marker()
+	if err != nil {
+		if marker != nil {
+			marker.Mark()
+		}
+		return nil, err
+	}
+
+	started := time.Now()
+	conn, err = tr.DialConnect(ctx, proxyAddr, network, address)
+	if err != nil {
+		if conn != nil {
+			_ = conn.Close()
+			conn = nil
+		}
+		if marker != nil {
+			marker.Mark()
+		}
+		return nil, err
+	}
+	if marker != nil {
+		marker.Reset()
+	}
+	if r.options.Chain != nil {
+		var name string
+		if cn, _ := r.options.Chain.(chainNamer); cn != nil {
+			name = cn.Name()
+		}
+		xmetrics.GetObserver(xmetrics.MetricNodeConnectDurationObserver,
+			metrics.Labels{"chain": name, "node": node.Name}).Observe(time.Since(started).Seconds())
+	}
+	return conn, nil
 }
 
 func (r *chainRoute) Bind(ctx context.Context, network, address string, opts ...chain.BindOption) (net.Listener, error) {

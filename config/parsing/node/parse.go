@@ -463,10 +463,20 @@ func ParseNode(hop string, cfg *config.NodeConfig, log logger.Logger) (*chain.No
 	)
 	var tr chain.Transporter = baseTransport
 	prewarmSize := mdutil.GetInt(md, parsing.MDKeyPrewarmSize, "prewarm")
-	if prewarmSize > 0 {
+	predictiveSize := mdutil.GetInt(md, parsing.MDKeyPredictiveSize, "predictive")
+	if prewarmSize > 0 || predictiveSize > 0 {
 		if connCfg.Type != "http" || dialCfg.Type != "tls" {
-			return nil, fmt.Errorf("prewarm requires an http connector with a tls dialer")
+			feature := "prewarm"
+			if predictiveSize > 0 {
+				feature = "predictive CONNECT"
+			}
+			if prewarmSize > 0 && predictiveSize > 0 {
+				feature = "prewarm and predictive CONNECT"
+			}
+			return nil, fmt.Errorf("%s requires an http connector with a tls dialer", feature)
 		}
+	}
+	if prewarmSize > 0 {
 		tr = xchain.NewPrewarmTransport(baseTransport, xchain.PrewarmConfig{
 			Size:           prewarmSize,
 			MaxConcurrent:  mdutil.GetInt(md, parsing.MDKeyPrewarmMaxConcurrent),
@@ -475,6 +485,20 @@ func ParseNode(hop string, cfg *config.NodeConfig, log logger.Logger) (*chain.No
 			RefillInterval: mdutil.GetDuration(md, parsing.MDKeyPrewarmRefillInterval),
 			DialTimeout:    mdutil.GetDuration(md, parsing.MDKeyPrewarmDialTimeout),
 			CheckTimeout:   mdutil.GetDuration(md, parsing.MDKeyPrewarmCheckTimeout),
+		}, nodeLogger, hop, cfg.Name)
+	}
+	if predictiveSize > 0 {
+		tr = xchain.NewPredictiveTransport(tr, xchain.PredictiveConfig{
+			Size:           predictiveSize,
+			MaxEndpoints:   mdutil.GetInt(md, parsing.MDKeyPredictiveMaxEndpoints),
+			MinHits:        mdutil.GetInt(md, parsing.MDKeyPredictiveMinHits),
+			Window:         mdutil.GetDuration(md, parsing.MDKeyPredictiveWindow),
+			MaxConcurrent:  mdutil.GetInt(md, parsing.MDKeyPredictiveMaxConcurrent),
+			Lifetime:       mdutil.GetDuration(md, parsing.MDKeyPredictiveLifetime),
+			IdleTimeout:    mdutil.GetDuration(md, parsing.MDKeyPredictiveIdleTimeout),
+			RefillInterval: mdutil.GetDuration(md, parsing.MDKeyPredictiveRefillInterval),
+			ConnectTimeout: mdutil.GetDuration(md, parsing.MDKeyPredictiveConnectTimeout),
+			CheckTimeout:   mdutil.GetDuration(md, parsing.MDKeyPredictiveCheckTimeout),
 		}, nodeLogger, hop, cfg.Name)
 	}
 
