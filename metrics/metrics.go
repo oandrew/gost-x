@@ -23,6 +23,19 @@ const (
 	MetricServiceTransferOutputBytesCounter metrics.MetricName = "gost_service_transfer_output_bytes_total"
 	// Chain node connect duration histogram. Labels: host, chain, node.
 	MetricNodeConnectDurationObserver metrics.MetricName = "gost_chain_node_connect_duration_seconds"
+	// Number of idle, fully handshaken connections in a node prewarm pool.
+	// Labels: host, hop, node.
+	MetricPrewarmAvailableGauge metrics.MetricName = "gost_chain_node_prewarm_available"
+	// Total prewarm pool hits. Labels: host, hop, node.
+	MetricPrewarmHitsCounter metrics.MetricName = "gost_chain_node_prewarm_hits_total"
+	// Total prewarm pool misses. Labels: host, hop, node.
+	MetricPrewarmMissesCounter metrics.MetricName = "gost_chain_node_prewarm_misses_total"
+	// Total expired or remotely closed idle prewarm connections. Labels: host, hop, node.
+	MetricPrewarmStaleCounter metrics.MetricName = "gost_chain_node_prewarm_stale_total"
+	// Total failed background connection establishments. Labels: host, hop, node.
+	MetricPrewarmFailuresCounter metrics.MetricName = "gost_chain_node_prewarm_failures_total"
+	// Background TCP/TLS establishment duration. Labels: host, hop, node.
+	MetricPrewarmEstablishDurationObserver metrics.MetricName = "gost_chain_node_prewarm_establish_duration_seconds"
 	// Total service handler errors. Labels: host, service, client.
 	MetricServiceHandlerErrorsCounter metrics.MetricName = "gost_service_handler_errors_total"
 	// Total chain connect errors. Labels: host, chain, node.

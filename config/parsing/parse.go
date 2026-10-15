@@ -106,4 +106,15 @@ const (
 	// dialer. A tun link sets it to "ip": datagram-shaped like udp, but
 	// session-scoped on the host, so the link ends on a lost peer session.
 	MDKeyP2PNetwork = "p2p.network"
+
+	// MDKeyPrewarmSize enables a pool of fully handshaken connections for an
+	// HTTP connector over a TLS dialer. Zero disables the pool.
+	MDKeyPrewarmSize = "prewarm.size"
+
+	MDKeyPrewarmMaxConcurrent  = "prewarm.maxConcurrent"
+	MDKeyPrewarmLifetime       = "prewarm.lifetime"
+	MDKeyPrewarmIdleTimeout    = "prewarm.idleTimeout"
+	MDKeyPrewarmRefillInterval = "prewarm.refillInterval"
+	MDKeyPrewarmDialTimeout    = "prewarm.dialTimeout"
+	MDKeyPrewarmCheckTimeout   = "prewarm.checkTimeout"
 )

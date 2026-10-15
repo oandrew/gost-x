@@ -34,6 +34,7 @@ func ParseChain(cfg *config.ChainConfig, log logger.Logger) (chain.Chainer, erro
 		xchain.MetadataChainOption(md),
 		xchain.LoggerChainOption(chainLogger),
 	)
+	firstHop := true
 
 	for _, ch := range cfg.Hops {
 		if ch == nil {
@@ -52,6 +53,10 @@ func ParseChain(cfg *config.ChainConfig, log logger.Logger) (chain.Chainer, erro
 		}
 		if hop != nil {
 			c.AddHop(hop)
+			if firstHop {
+				xchain.StartPrewarm(hop, chainLogger)
+				firstHop = false
+			}
 		}
 	}
 

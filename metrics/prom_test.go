@@ -37,6 +37,10 @@ func TestPromMetricsCounterKnownNames(t *testing.T) {
 		{MetricServiceHandlerErrorsCounter, metrics.Labels{"service": "s", "client": "c"}},
 		{MetricChainErrorsCounter, metrics.Labels{"chain": "ch", "node": "n"}},
 		{MetricRecorderRecordsCounter, metrics.Labels{"recorder": "r"}},
+		{MetricPrewarmHitsCounter, metrics.Labels{"hop": "h", "node": "n"}},
+		{MetricPrewarmMissesCounter, metrics.Labels{"hop": "h", "node": "n"}},
+		{MetricPrewarmStaleCounter, metrics.Labels{"hop": "h", "node": "n"}},
+		{MetricPrewarmFailuresCounter, metrics.Labels{"hop": "h", "node": "n"}},
 	}
 
 	for _, tt := range tests {
@@ -62,6 +66,12 @@ func TestPromMetricsGaugeKnownNames(t *testing.T) {
 	g.Set(1)
 	g.Inc()
 	g.Dec()
+
+	pg := GetGauge(MetricPrewarmAvailableGauge, metrics.Labels{"hop": "h", "node": "n"})
+	if pg == nil {
+		t.Fatal("prewarm gauge should not be nil")
+	}
+	pg.Set(2)
 }
 
 func TestPromMetricsObserverKnownNames(t *testing.T) {
@@ -75,6 +85,7 @@ func TestPromMetricsObserverKnownNames(t *testing.T) {
 	}{
 		{MetricServiceRequestsDurationObserver, metrics.Labels{"service": "s"}},
 		{MetricNodeConnectDurationObserver, metrics.Labels{"chain": "ch", "node": "n"}},
+		{MetricPrewarmEstablishDurationObserver, metrics.Labels{"hop": "h", "node": "n"}},
 	}
 
 	for _, tt := range tests {

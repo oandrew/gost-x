@@ -413,9 +413,19 @@ func (p *chainHop) reload(ctx context.Context) (err error) {
 	p.logger.Debugf("load items %d", len(nodes))
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
+	old := p.nodes
 	p.nodes = nodes
+	p.mu.Unlock()
+
+	keep := make(map[*chain.Node]struct{}, len(nodes))
+	for _, node := range nodes {
+		keep[node] = struct{}{}
+	}
+	for _, node := range old {
+		if _, ok := keep[node]; !ok {
+			closeNode(node)
+		}
+	}
 
 	return
 }
@@ -509,9 +519,7 @@ func (p *chainHop) parseNode(r io.Reader) ([]*chain.Node, error) {
 func (p *chainHop) Close() error {
 	p.cancelFunc()
 	for _, n := range p.Nodes() {
-		if n != nil {
-			n.Close()
-		}
+		closeNode(n)
 	}
 	if p.options.fileLoader != nil {
 		p.options.fileLoader.Close()
@@ -523,4 +531,14 @@ func (p *chainHop) Close() error {
 		p.options.httpLoader.Close()
 	}
 	return nil
+}
+
+func closeNode(node *chain.Node) {
+	if node == nil {
+		return
+	}
+	if closer, ok := node.Options().Transport.(io.Closer); ok {
+		closer.Close()
+	}
+	node.Close()
 }

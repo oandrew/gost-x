@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/go-gost/core/logger"
+	xchain "github.com/go-gost/x/chain"
 	"github.com/go-gost/x/config"
 	"github.com/go-gost/x/config/parsing"
 	xlogger "github.com/go-gost/x/logger"
@@ -13,6 +14,7 @@ import (
 	// Register connector and dialer implementations needed for node parsing.
 	_ "github.com/go-gost/x/connector/http"
 	_ "github.com/go-gost/x/dialer/tcp"
+	_ "github.com/go-gost/x/dialer/tls"
 )
 
 func TestMain(m *testing.M) {
@@ -128,6 +130,52 @@ func TestParseNode_ExplicitDialer(t *testing.T) {
 	}
 	if n == nil {
 		t.Fatal("expected non-nil node")
+	}
+}
+
+func TestParseNode_HTTPSPrewarm(t *testing.T) {
+	n, err := ParseNode("test-hop", &config.NodeConfig{
+		Name: "prewarmed",
+		Addr: "proxy.example:443",
+		Connector: &config.ConnectorConfig{
+			Type: "http",
+		},
+		Dialer: &config.DialerConfig{
+			Type: "tls",
+		},
+		Metadata: map[string]any{
+			"prewarm.size":          3,
+			"prewarm.idleTimeout":   "45s",
+			"prewarm.maxConcurrent": 1,
+		},
+	}, testLogger())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tr, ok := n.Options().Transport.(*xchain.PrewarmTransport)
+	if !ok {
+		t.Fatalf("transport type = %T, want *chain.PrewarmTransport", n.Options().Transport)
+	}
+	defer tr.Close()
+	if stats := tr.PrewarmStats(); stats.Available != 0 || stats.Creating != 0 {
+		t.Fatalf("pool should remain dormant until assigned a first-hop address: %+v", stats)
+	}
+}
+
+func TestParseNode_PrewarmRejectsUnsupportedTransport(t *testing.T) {
+	_, err := ParseNode("test-hop", &config.NodeConfig{
+		Name: "plain-http",
+		Addr: "proxy.example:80",
+		Connector: &config.ConnectorConfig{
+			Type: "http",
+		},
+		Dialer: &config.DialerConfig{
+			Type: "tcp",
+		},
+		Metadata: map[string]any{"prewarm": 1},
+	}, testLogger())
+	if err == nil {
+		t.Fatal("expected prewarm to reject a non-TLS dialer")
 	}
 }
 

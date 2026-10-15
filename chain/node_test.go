@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-gost/core/chain"
 	"github.com/go-gost/core/connector"
+	"github.com/go-gost/core/hop"
 
 	xlogger "github.com/go-gost/x/logger"
 )
@@ -41,6 +42,43 @@ func (t *testTransport) Multiplex() bool { return false }
 func (t *testTransport) Options() *chain.TransportOptions { return &t.options }
 
 func (t *testTransport) Copy() chain.Transporter { return t }
+
+type prewarmStartTransport struct {
+	testTransport
+	started chan string
+}
+
+func (t *prewarmStartTransport) StartPrewarm(addr string) {
+	t.started <- addr
+}
+
+type prewarmTestHop struct {
+	nodes []*chain.Node
+}
+
+func (h *prewarmTestHop) Select(context.Context, ...hop.SelectOption) *chain.Node {
+	if len(h.nodes) == 0 {
+		return nil
+	}
+	return h.nodes[0]
+}
+
+func (h *prewarmTestHop) Nodes() []*chain.Node { return h.nodes }
+
+func TestStartPrewarmResolvesAndStartsEligibleNodes(t *testing.T) {
+	tr := &prewarmStartTransport{started: make(chan string, 1)}
+	node := chain.NewNode("prewarm", "proxy.example:443", chain.TransportNodeOption(tr))
+	StartPrewarm(&prewarmTestHop{nodes: []*chain.Node{node}}, xlogger.Nop())
+
+	select {
+	case addr := <-tr.started:
+		if addr != "proxy.example:443" {
+			t.Fatalf("resolved address = %q, want proxy.example:443", addr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("prewarming did not start")
+	}
+}
 
 func TestNodeProbeTCP(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")

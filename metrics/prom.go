@@ -40,6 +40,12 @@ func NewMetrics(reg *prometheus.Registry) metrics.Metrics {
 					Help: "Current in-flight requests",
 				},
 				[]string{"host", "service", "client"}),
+			MetricPrewarmAvailableGauge: prometheus.NewGaugeVec(
+				prometheus.GaugeOpts{
+					Name: string(MetricPrewarmAvailableGauge),
+					Help: "Current number of idle prewarmed node connections",
+				},
+				[]string{"host", "hop", "node"}),
 		},
 		counters: map[metrics.MetricName]*prometheus.CounterVec{
 			MetricServiceRequestsCounter: prometheus.NewCounterVec(
@@ -78,6 +84,30 @@ func NewMetrics(reg *prometheus.Registry) metrics.Metrics {
 					Help: "Total records written by recorder",
 				},
 				[]string{"host", "recorder"}),
+			MetricPrewarmHitsCounter: prometheus.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: string(MetricPrewarmHitsCounter),
+					Help: "Total prewarmed node connection pool hits",
+				},
+				[]string{"host", "hop", "node"}),
+			MetricPrewarmMissesCounter: prometheus.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: string(MetricPrewarmMissesCounter),
+					Help: "Total prewarmed node connection pool misses",
+				},
+				[]string{"host", "hop", "node"}),
+			MetricPrewarmStaleCounter: prometheus.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: string(MetricPrewarmStaleCounter),
+					Help: "Total stale prewarmed node connections",
+				},
+				[]string{"host", "hop", "node"}),
+			MetricPrewarmFailuresCounter: prometheus.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: string(MetricPrewarmFailuresCounter),
+					Help: "Total failed prewarmed node connection establishments",
+				},
+				[]string{"host", "hop", "node"}),
 		},
 		histograms: map[metrics.MetricName]*prometheus.HistogramVec{
 			MetricServiceRequestsDurationObserver: prometheus.NewHistogramVec(
@@ -98,6 +128,15 @@ func NewMetrics(reg *prometheus.Registry) metrics.Metrics {
 					},
 				},
 				[]string{"host", "chain", "node"}),
+			MetricPrewarmEstablishDurationObserver: prometheus.NewHistogramVec(
+				prometheus.HistogramOpts{
+					Name: string(MetricPrewarmEstablishDurationObserver),
+					Help: "Distribution of background node connection establishment latencies",
+					Buckets: []float64{
+						.01, .05, .1, .25, .5, 1, 1.5, 2, 5, 10, 15, 30, 60,
+					},
+				},
+				[]string{"host", "hop", "node"}),
 		},
 	}
 	for k := range m.gauges {

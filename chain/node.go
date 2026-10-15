@@ -5,9 +5,47 @@ import (
 	"time"
 
 	"github.com/go-gost/core/chain"
+	"github.com/go-gost/core/hop"
 	"github.com/go-gost/core/logger"
+	xnet "github.com/go-gost/x/internal/net"
 	"github.com/go-gost/x/internal/probe"
 )
+
+type prewarmStarter interface {
+	StartPrewarm(addr string)
+}
+
+// StartPrewarm begins filling eligible pools on the first hop of a chain.
+// Later hops are intentionally excluded because their node connection may
+// itself need to be established through all preceding hops.
+func StartPrewarm(h hop.Hop, log logger.Logger) {
+	nl, ok := h.(hop.NodeList)
+	if !ok {
+		return
+	}
+	for _, node := range nl.Nodes() {
+		if node == nil || node.Options().Transport == nil {
+			continue
+		}
+		starter, ok := node.Options().Transport.(prewarmStarter)
+		if !ok {
+			continue
+		}
+		go func(node *chain.Node, starter prewarmStarter) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			addr, err := xnet.Resolve(ctx, "ip", node.Addr,
+				node.Options().Resolver, node.Options().HostMapper, log)
+			if err != nil {
+				if log != nil {
+					log.Debugf("prewarm resolve %s: %v", node.Addr, err)
+				}
+				return
+			}
+			starter.StartPrewarm(addr)
+		}(node, starter)
+	}
+}
 
 // StartNodeProbe starts a background goroutine that periodically probes the
 // node's transport. On success the node's marker is reset; on failure the

@@ -455,12 +455,28 @@ func ParseNode(hop string, cfg *config.NodeConfig, log logger.Logger) (*chain.No
 		}
 	}
 
-	tr := xchain.NewTransport(d, cr,
+	baseTransport := xchain.NewTransport(d, cr,
 		chain.AddrTransportOption(cfg.Addr),
 		chain.InterfaceTransportOption(mdutil.GetString(md, parsing.MDKeyInterface)),
 		chain.NetnsTransportOption(mdutil.GetString(md, parsing.MDKeyNetns)),
 		chain.SockOptsTransportOption(sockOpts),
 	)
+	var tr chain.Transporter = baseTransport
+	prewarmSize := mdutil.GetInt(md, parsing.MDKeyPrewarmSize, "prewarm")
+	if prewarmSize > 0 {
+		if connCfg.Type != "http" || dialCfg.Type != "tls" {
+			return nil, fmt.Errorf("prewarm requires an http connector with a tls dialer")
+		}
+		tr = xchain.NewPrewarmTransport(baseTransport, xchain.PrewarmConfig{
+			Size:           prewarmSize,
+			MaxConcurrent:  mdutil.GetInt(md, parsing.MDKeyPrewarmMaxConcurrent),
+			Lifetime:       mdutil.GetDuration(md, parsing.MDKeyPrewarmLifetime),
+			IdleTimeout:    mdutil.GetDuration(md, parsing.MDKeyPrewarmIdleTimeout),
+			RefillInterval: mdutil.GetDuration(md, parsing.MDKeyPrewarmRefillInterval),
+			DialTimeout:    mdutil.GetDuration(md, parsing.MDKeyPrewarmDialTimeout),
+			CheckTimeout:   mdutil.GetDuration(md, parsing.MDKeyPrewarmCheckTimeout),
+		}, nodeLogger, hop, cfg.Name)
+	}
 
 	opts := []chain.NodeOption{
 		chain.TransportNodeOption(tr),
