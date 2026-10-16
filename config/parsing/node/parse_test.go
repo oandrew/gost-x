@@ -144,9 +144,10 @@ func TestParseNode_HTTPSPrewarm(t *testing.T) {
 			Type: "tls",
 		},
 		Metadata: map[string]any{
-			"prewarm.size":          3,
-			"prewarm.idleTimeout":   "45s",
-			"prewarm.maxConcurrent": 1,
+			"prewarm.size":              3,
+			"prewarm.idleTimeout":       "45s",
+			"prewarm.inactivityTimeout": "2m",
+			"prewarm.maxConcurrent":     1,
 		},
 	}, testLogger())
 	if err != nil {

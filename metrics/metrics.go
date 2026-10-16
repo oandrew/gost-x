@@ -26,6 +26,9 @@ const (
 	// Number of idle, fully handshaken connections in a node prewarm pool.
 	// Labels: host, hop, node.
 	MetricPrewarmAvailableGauge metrics.MetricName = "gost_chain_node_prewarm_available"
+	// Whether a prewarm pool is active rather than suspended for inactivity.
+	// Labels: host, hop, node.
+	MetricPrewarmActiveGauge metrics.MetricName = "gost_chain_node_prewarm_active"
 	// Total prewarm pool hits. Labels: host, hop, node.
 	MetricPrewarmHitsCounter metrics.MetricName = "gost_chain_node_prewarm_hits_total"
 	// Total prewarm pool misses. Labels: host, hop, node.

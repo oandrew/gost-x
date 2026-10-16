@@ -148,6 +148,19 @@ func waitForPrewarmAvailable(t testing.TB, tr *PrewarmTransport, want int) {
 	t.Fatalf("prewarm pool did not reach %d available connections: %+v", want, tr.PrewarmStats())
 }
 
+func waitForPrewarmSuspended(t testing.TB, tr *PrewarmTransport) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		stats := tr.PrewarmStats()
+		if !stats.Active && stats.Available == 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("prewarm pool did not suspend: %+v", tr.PrewarmStats())
+}
+
 func dialThroughPrewarm(ctx context.Context, tr *PrewarmTransport) (net.Conn, error) {
 	conn, err := tr.Dial(ctx, "proxy.example:443")
 	if err != nil {
@@ -215,6 +228,79 @@ func TestPrewarmLogsEstablishedAndUsedEvents(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("expected established and used log events, got:\n%s", output.String())
+}
+
+func TestPrewarmSuspendsAfterInactivity(t *testing.T) {
+	f := newPrewarmTestFixture(2, 0)
+	defer f.close()
+	f.transport.pool.cfg.InactivityTimeout = 200 * time.Millisecond
+	f.transport.pool.cfg.RefillInterval = 2 * time.Millisecond
+	f.transport.StartPrewarm("proxy.example:443")
+	waitForPrewarmAvailable(t, f.transport, 2)
+	if stats := f.transport.PrewarmStats(); !stats.Active {
+		t.Fatalf("new pool is not active: %+v", stats)
+	}
+
+	waitForPrewarmSuspended(t, f.transport)
+	stats := f.transport.PrewarmStats()
+	if stats.Suspensions != 1 {
+		t.Fatalf("suspensions = %d, want 1", stats.Suspensions)
+	}
+	dials := f.dials.Load()
+	// Startup hints (including those forwarded by a predictive wrapper) must
+	// not be mistaken for real demand after suspension.
+	f.transport.StartPrewarm("proxy.example:443")
+	time.Sleep(20 * time.Millisecond)
+	if got := f.dials.Load(); got != dials {
+		t.Fatalf("suspended pool continued dialing: before=%d after=%d", dials, got)
+	}
+}
+
+func TestPrewarmDemandResumesSuspendedPool(t *testing.T) {
+	var output lockedBuffer
+	f := newPrewarmTestFixture(1, 0)
+	defer f.close()
+	f.transport.pool.cfg.InactivityTimeout = 200 * time.Millisecond
+	f.transport.pool.cfg.RefillInterval = 2 * time.Millisecond
+	f.transport.pool.log = xlogger.NewLogger(
+		xlogger.OutputOption(&output),
+		xlogger.LevelOption(logger.DebugLevel),
+	)
+	f.transport.StartPrewarm("proxy.example:443")
+	waitForPrewarmAvailable(t, f.transport, 1)
+	waitForPrewarmSuspended(t, f.transport)
+
+	conn, err := dialThroughPrewarm(context.Background(), f.transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+	if stats := f.transport.PrewarmStats(); !stats.Active || stats.Hits+stats.Misses != 1 {
+		t.Fatalf("request did not reactivate the empty pool: %+v", stats)
+	}
+	waitForPrewarmAvailable(t, f.transport, 1)
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		logs := output.String()
+		if strings.Contains(logs, `"event":"prewarm_suspended"`) &&
+			strings.Contains(logs, `"event":"prewarm_resumed"`) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("expected suspended and resumed log events, got:\n%s", output.String())
+}
+
+func TestNormalizePrewarmInactivityTimeout(t *testing.T) {
+	cfg := normalizePrewarmConfig(PrewarmConfig{Size: 1})
+	if cfg.InactivityTimeout != defaultPrewarmInactivity {
+		t.Fatalf("default inactivity timeout = %v, want %v", cfg.InactivityTimeout, defaultPrewarmInactivity)
+	}
+	cfg = normalizePrewarmConfig(PrewarmConfig{Size: 1, InactivityTimeout: -time.Second})
+	if cfg.InactivityTimeout != 0 {
+		t.Fatalf("negative inactivity timeout = %v, want disabled", cfg.InactivityTimeout)
+	}
 }
 
 func TestPrewarmPoolExhaustionFallsBackConcurrently(t *testing.T) {

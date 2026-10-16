@@ -17,6 +17,7 @@ import (
 const (
 	defaultPrewarmLifetime       = 5 * time.Minute
 	defaultPrewarmIdleTimeout    = time.Minute
+	defaultPrewarmInactivity     = 5 * time.Minute
 	defaultPrewarmRefillInterval = time.Second
 	defaultPrewarmDialTimeout    = 15 * time.Second
 	defaultPrewarmCheckTimeout   = time.Millisecond
@@ -26,22 +27,27 @@ const (
 // connections to a proxy node. A connection is removed permanently as soon as
 // it is checked out; tunneled connections are never returned to the pool.
 type PrewarmConfig struct {
-	Size           int
-	MaxConcurrent  int
-	Lifetime       time.Duration
-	IdleTimeout    time.Duration
-	RefillInterval time.Duration
-	DialTimeout    time.Duration
-	CheckTimeout   time.Duration
+	Size          int
+	MaxConcurrent int
+	Lifetime      time.Duration
+	IdleTimeout   time.Duration
+	// InactivityTimeout suspends the entire pool after this long without a
+	// Dial request. A negative value disables inactivity suspension.
+	InactivityTimeout time.Duration
+	RefillInterval    time.Duration
+	DialTimeout       time.Duration
+	CheckTimeout      time.Duration
 }
 
 // PrewarmStats is a point-in-time view of a prewarmed transport.
 type PrewarmStats struct {
+	Active                bool
 	Available             int
 	Creating              int
 	Hits                  uint64
 	Misses                uint64
 	Stale                 uint64
+	Suspensions           uint64
 	ReplenishmentFailures uint64
 	LastEstablishDuration time.Duration
 }
@@ -78,6 +84,11 @@ func normalizePrewarmConfig(cfg PrewarmConfig) PrewarmConfig {
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = defaultPrewarmIdleTimeout
 	}
+	if cfg.InactivityTimeout < 0 {
+		cfg.InactivityTimeout = 0
+	} else if cfg.InactivityTimeout == 0 {
+		cfg.InactivityTimeout = defaultPrewarmInactivity
+	}
 	if cfg.RefillInterval <= 0 {
 		cfg.RefillInterval = defaultPrewarmRefillInterval
 	}
@@ -103,7 +114,7 @@ func (tr *PrewarmTransport) StartPrewarm(addr string) {
 }
 
 func (tr *PrewarmTransport) Dial(ctx context.Context, addr string) (net.Conn, error) {
-	tr.StartPrewarm(addr)
+	tr.pool.activate(addr)
 	if conn := tr.pool.get(addr); conn != nil {
 		return &prewarmedConn{Conn: conn}, nil
 	}
@@ -190,13 +201,16 @@ type prewarmPool struct {
 	idle       []*prewarmEntry
 	creating   int
 	started    bool
+	active     bool
 	closed     bool
+	lastDemand time.Time
 
-	hits       atomic.Uint64
-	misses     atomic.Uint64
-	stale      atomic.Uint64
-	failures   atomic.Uint64
-	lastDialNS atomic.Int64
+	hits        atomic.Uint64
+	misses      atomic.Uint64
+	stale       atomic.Uint64
+	suspensions atomic.Uint64
+	failures    atomic.Uint64
+	lastDialNS  atomic.Int64
 }
 
 func newPrewarmPool(base *Transport, cfg PrewarmConfig, log logger.Logger, hop, node string) *prewarmPool {
@@ -213,11 +227,25 @@ func newPrewarmPool(base *Transport, cfg PrewarmConfig, log logger.Logger, hop, 
 }
 
 func (p *prewarmPool) start(addr string) {
+	p.configure(addr, false)
+}
+
+// activate records real demand for the pool. Unlike start, it resumes a pool
+// which was suspended for inactivity.
+func (p *prewarmPool) activate(addr string) {
+	p.configure(addr, true)
+}
+
+func (p *prewarmPool) configure(addr string, demand bool) {
 	if addr == "" || p.cfg.Size == 0 {
 		return
 	}
 
-	var old []*prewarmEntry
+	var (
+		old     []*prewarmEntry
+		resumed bool
+	)
+	now := time.Now()
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -225,6 +253,9 @@ func (p *prewarmPool) start(addr string) {
 	}
 	if !p.started {
 		p.started = true
+		p.active = true
+		p.lastDemand = now
+		p.setActiveMetricLocked()
 		p.wg.Add(1)
 		go p.maintain()
 	}
@@ -235,10 +266,26 @@ func (p *prewarmPool) start(addr string) {
 		p.idle = nil
 		p.setAvailableMetricLocked()
 	}
-	p.scheduleLocked()
+	if demand {
+		p.lastDemand = now
+		if !p.active {
+			p.active = true
+			resumed = true
+			p.setActiveMetricLocked()
+		}
+	}
+	if p.active {
+		p.scheduleLocked()
+	}
 	p.mu.Unlock()
 
 	closePrewarmEntries(old)
+	if resumed && p.log != nil {
+		p.log.WithFields(map[string]any{
+			"event":  "prewarm_resumed",
+			"remote": addr,
+		}).Debug("prewarm pool resumed")
+	}
 }
 
 func (p *prewarmPool) get(addr string) net.Conn {
@@ -310,7 +357,7 @@ func (p *prewarmPool) replenish() {
 }
 
 func (p *prewarmPool) scheduleLocked() {
-	if p.closed || p.addr == "" || p.cfg.Size == 0 {
+	if p.closed || !p.active || p.addr == "" || p.cfg.Size == 0 {
 		return
 	}
 	need := p.cfg.Size - len(p.idle) - p.creating
@@ -402,10 +449,37 @@ func (p *prewarmPool) maintain() {
 
 func (p *prewarmPool) expireAndRefill() {
 	now := time.Now()
-	var expired []*prewarmEntry
+	var (
+		expired   []*prewarmEntry
+		suspended []*prewarmEntry
+		remote    string
+	)
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
+		return
+	}
+	if p.active && p.cfg.InactivityTimeout > 0 &&
+		!p.lastDemand.IsZero() && now.Sub(p.lastDemand) >= p.cfg.InactivityTimeout {
+		p.active = false
+		p.generation++
+		p.suspensions.Add(1)
+		suspended = p.idle
+		p.idle = nil
+		remote = p.addr
+		p.setAvailableMetricLocked()
+		p.setActiveMetricLocked()
+		p.mu.Unlock()
+
+		closePrewarmEntries(suspended)
+		if p.log != nil {
+			p.log.WithFields(map[string]any{
+				"event":       "prewarm_suspended",
+				"remote":      remote,
+				"idle_closed": len(suspended),
+				"inactivity":  p.cfg.InactivityTimeout.String(),
+			}).Debug("prewarm pool suspended after inactivity")
+		}
 		return
 	}
 	n := 0
@@ -438,16 +512,26 @@ func (p *prewarmPool) setAvailableMetricLocked() {
 	xmetrics.GetGauge(xmetrics.MetricPrewarmAvailableGauge, p.labels).Set(float64(len(p.idle)))
 }
 
+func (p *prewarmPool) setActiveMetricLocked() {
+	value := 0.0
+	if p.active {
+		value = 1
+	}
+	xmetrics.GetGauge(xmetrics.MetricPrewarmActiveGauge, p.labels).Set(value)
+}
+
 func (p *prewarmPool) stats() PrewarmStats {
 	p.mu.Lock()
-	available, creating := len(p.idle), p.creating
+	active, available, creating := p.active, len(p.idle), p.creating
 	p.mu.Unlock()
 	return PrewarmStats{
+		Active:                active,
 		Available:             available,
 		Creating:              creating,
 		Hits:                  p.hits.Load(),
 		Misses:                p.misses.Load(),
 		Stale:                 p.stale.Load(),
+		Suspensions:           p.suspensions.Load(),
 		ReplenishmentFailures: p.failures.Load(),
 		LastEstablishDuration: time.Duration(p.lastDialNS.Load()),
 	}
@@ -460,10 +544,12 @@ func (p *prewarmPool) close() error {
 		return nil
 	}
 	p.closed = true
+	p.active = false
 	p.cancel()
 	idle := p.idle
 	p.idle = nil
 	p.setAvailableMetricLocked()
+	p.setActiveMetricLocked()
 	p.mu.Unlock()
 
 	closePrewarmEntries(idle)

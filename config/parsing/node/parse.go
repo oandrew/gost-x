@@ -478,13 +478,14 @@ func ParseNode(hop string, cfg *config.NodeConfig, log logger.Logger) (*chain.No
 	}
 	if prewarmSize > 0 {
 		tr = xchain.NewPrewarmTransport(baseTransport, xchain.PrewarmConfig{
-			Size:           prewarmSize,
-			MaxConcurrent:  mdutil.GetInt(md, parsing.MDKeyPrewarmMaxConcurrent),
-			Lifetime:       mdutil.GetDuration(md, parsing.MDKeyPrewarmLifetime),
-			IdleTimeout:    mdutil.GetDuration(md, parsing.MDKeyPrewarmIdleTimeout),
-			RefillInterval: mdutil.GetDuration(md, parsing.MDKeyPrewarmRefillInterval),
-			DialTimeout:    mdutil.GetDuration(md, parsing.MDKeyPrewarmDialTimeout),
-			CheckTimeout:   mdutil.GetDuration(md, parsing.MDKeyPrewarmCheckTimeout),
+			Size:              prewarmSize,
+			MaxConcurrent:     mdutil.GetInt(md, parsing.MDKeyPrewarmMaxConcurrent),
+			Lifetime:          mdutil.GetDuration(md, parsing.MDKeyPrewarmLifetime),
+			IdleTimeout:       mdutil.GetDuration(md, parsing.MDKeyPrewarmIdleTimeout),
+			InactivityTimeout: mdutil.GetDuration(md, parsing.MDKeyPrewarmInactivity),
+			RefillInterval:    mdutil.GetDuration(md, parsing.MDKeyPrewarmRefillInterval),
+			DialTimeout:       mdutil.GetDuration(md, parsing.MDKeyPrewarmDialTimeout),
+			CheckTimeout:      mdutil.GetDuration(md, parsing.MDKeyPrewarmCheckTimeout),
 		}, nodeLogger, hop, cfg.Name)
 	}
 	if predictiveSize > 0 {

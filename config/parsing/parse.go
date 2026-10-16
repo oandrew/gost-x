@@ -114,6 +114,7 @@ const (
 	MDKeyPrewarmMaxConcurrent  = "prewarm.maxConcurrent"
 	MDKeyPrewarmLifetime       = "prewarm.lifetime"
 	MDKeyPrewarmIdleTimeout    = "prewarm.idleTimeout"
+	MDKeyPrewarmInactivity     = "prewarm.inactivityTimeout"
 	MDKeyPrewarmRefillInterval = "prewarm.refillInterval"
 	MDKeyPrewarmDialTimeout    = "prewarm.dialTimeout"
 	MDKeyPrewarmCheckTimeout   = "prewarm.checkTimeout"

@@ -46,6 +46,12 @@ func NewMetrics(reg *prometheus.Registry) metrics.Metrics {
 					Help: "Current number of idle prewarmed node connections",
 				},
 				[]string{"host", "hop", "node"}),
+			MetricPrewarmActiveGauge: prometheus.NewGaugeVec(
+				prometheus.GaugeOpts{
+					Name: string(MetricPrewarmActiveGauge),
+					Help: "Whether the node prewarm pool is active rather than suspended",
+				},
+				[]string{"host", "hop", "node"}),
 			MetricPredictiveAvailableGauge: prometheus.NewGaugeVec(
 				prometheus.GaugeOpts{
 					Name: string(MetricPredictiveAvailableGauge),

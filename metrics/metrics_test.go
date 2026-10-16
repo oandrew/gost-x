@@ -162,6 +162,7 @@ func TestMetricConstantsNotEmpty(t *testing.T) {
 		MetricServiceTransferOutputBytesCounter,
 		MetricNodeConnectDurationObserver,
 		MetricPrewarmAvailableGauge,
+		MetricPrewarmActiveGauge,
 		MetricPrewarmHitsCounter,
 		MetricPrewarmMissesCounter,
 		MetricPrewarmStaleCounter,

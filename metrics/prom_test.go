@@ -71,11 +71,16 @@ func TestPromMetricsGaugeKnownNames(t *testing.T) {
 	g.Inc()
 	g.Dec()
 
-	pg := GetGauge(MetricPrewarmAvailableGauge, metrics.Labels{"hop": "h", "node": "n"})
-	if pg == nil {
-		t.Fatal("prewarm gauge should not be nil")
+	for _, name := range []metrics.MetricName{
+		MetricPrewarmAvailableGauge,
+		MetricPrewarmActiveGauge,
+	} {
+		g := GetGauge(name, metrics.Labels{"hop": "h", "node": "n"})
+		if g == nil {
+			t.Fatalf("prewarm gauge %q should not be nil", name)
+		}
+		g.Set(2)
 	}
-	pg.Set(2)
 
 	for _, name := range []metrics.MetricName{
 		MetricPredictiveAvailableGauge,
